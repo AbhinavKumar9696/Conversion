@@ -1,7 +1,6 @@
-from django.contrib import admin
 from django.urls import path
-from dalbadluApp1 import views
+from .views import convert_file
 
 urlpatterns = [
-    path('',views.home_view,name="home"),
+    path('', convert_file, name='convert_file'),
 ]
