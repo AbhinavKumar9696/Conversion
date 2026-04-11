@@ -1,6 +1,7 @@
 from django.urls import path
-from .views import convert_file
+from .views import ConvertedFileListCreateAPIView, ConvertedFileRetrieveAPIView
 
 urlpatterns = [
-    path('', convert_file, name='convert_file'),
+    path("api/conversions/", ConvertedFileListCreateAPIView.as_view(), name="conversion-list-create"),
+    path("api/conversions/<int:pk>/", ConvertedFileRetrieveAPIView.as_view(), name="conversion-detail"),
 ]

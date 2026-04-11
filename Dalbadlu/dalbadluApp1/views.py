@@ -1,60 +1,41 @@
-import os
-from django.shortcuts import render
-from django.conf import settings
-from dalbadluApp1.froms import FileConvertForm
+from rest_framework import generics, status
+from rest_framework.response import Response
+
 from .models import ConvertedFile
+from .serializers import ConvertedFileSerializer, FileConversionRequestSerializer
+from .services import ConversionError, process_conversion
 
-from docx2pdf import convert
-from pdf2docx import Converter
 
+class ConvertedFileListCreateAPIView(generics.ListCreateAPIView):
+    queryset = ConvertedFile.objects.order_by("-uploaded_at")
 
-def convert_file(request):
-    message = ""
-    file_url = None   # 👈 NEW
+    def get_serializer_class(self):
+        if self.request.method == "POST":
+            return FileConversionRequestSerializer
+        return ConvertedFileSerializer
 
-    if request.method == 'POST':
-        form = FileConvertForm(request.POST, request.FILES)
-        if form.is_valid():
-            conversion_type = form.cleaned_data['conversion_type']
-            uploaded_file = request.FILES['original_file']
+    def create(self, request, *args, **kwargs):
+        request_serializer = self.get_serializer(data=request.data)
+        request_serializer.is_valid(raise_exception=True)
+        conversion = request_serializer.save()
 
-            file_instance = ConvertedFile.objects.create(
-                original_file=uploaded_file,
-                conversion_type=conversion_type
+        try:
+            process_conversion(conversion)
+        except ConversionError:
+            response_serializer = ConvertedFileSerializer(
+                conversion,
+                context={"request": request},
             )
+            return Response(response_serializer.data, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
 
-            input_path = file_instance.original_file.path
+        response_serializer = ConvertedFileSerializer(
+            conversion,
+            context={"request": request},
+        )
+        headers = self.get_success_headers(response_serializer.data)
+        return Response(response_serializer.data, status=status.HTTP_201_CREATED, headers=headers)
 
-            if conversion_type == 'word_to_pdf':
-                if not input_path.endswith('.docx'):
-                    message = "Please upload a Word file (.docx)"
-                else:
-                    output_path = input_path.replace('.docx', '.pdf')
-                    convert(input_path, output_path)
 
-            elif conversion_type == 'pdf_to_word':
-                if not input_path.endswith('.pdf'):
-                    message = "Please upload a PDF file"
-                else:
-                    output_path = input_path.replace('.pdf', '.docx')
-                    cv = Converter(input_path)
-                    cv.convert(output_path)
-                    cv.close()
-
-            # Save and prepare download
-            if 'output_path' in locals() and os.path.exists(output_path):
-                relative_path = output_path.replace(settings.MEDIA_ROOT + '/', '')
-                file_instance.converted_file.name = relative_path
-                file_instance.save()
-
-                file_url = settings.MEDIA_URL + relative_path   # 👈 IMPORTANT
-                message = "File converted successfully!"
-
-    else:
-        form = FileConvertForm()
-
-    return render(request, 'convert.html', {
-        'form': form,
-        'message': message,
-        'file_url': file_url   # 👈 PASS TO TEMPLATE
-    })
+class ConvertedFileRetrieveAPIView(generics.RetrieveAPIView):
+    queryset = ConvertedFile.objects.all()
+    serializer_class = ConvertedFileSerializer
